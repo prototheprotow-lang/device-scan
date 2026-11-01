@@ -538,13 +538,22 @@ function getOnline(){try{return JSON.parse(localStorage.getItem('deviceScanOnlin
 var SYNC_BASE='https://kvdb.io/';
 var DEFAULT_SYNC_CODE='devicescan-lab-f83kd1x9';
 function syncCode(){try{return localStorage.getItem('deviceScanSyncCode')||DEFAULT_SYNC_CODE}catch(e){return DEFAULT_SYNC_CODE}}
+function syncFetch(url,opts){
+  return fetch(url,opts).then(function(r){
+    if(!r.ok){var e=new Error('HTTP '+r.status+' from sync server');e.httpStatus=r.status;throw e}
+    return r;
+  }).catch(function(err){
+    if(err instanceof TypeError)err.message='Network/CORS error reaching sync server: '+err.message;
+    throw err;
+  });
+}
 function updateRegistry(code,tag){
   var url=SYNC_BASE+encodeURIComponent(code)+'/registry';
   return fetch(url).then(function(r){return r.ok?r.text():'[]'}).then(function(t){
     var list;try{list=JSON.parse(t)}catch(e){list=[]}
     if(!Array.isArray(list))list=[];
     if(list.indexOf(tag)===-1)list.push(tag);
-    return fetch(url,{method:'PUT',body:JSON.stringify(list)});
+    return syncFetch(url,{method:'PUT',body:JSON.stringify(list)});
   });
 }
 function pushOnline(cb){
@@ -552,7 +561,7 @@ function pushOnline(cb){
   if(!code){cb&&cb('no code');return}
   var tag=deviceTag();
   var url=SYNC_BASE+encodeURIComponent(code)+'/scans-'+encodeURIComponent(tag);
-  fetch(url,{method:'PUT',body:JSON.stringify(getHistory())}).then(function(){
+  syncFetch(url,{method:'PUT',body:JSON.stringify(getHistory())}).then(function(){
     return updateRegistry(code,tag);
   }).then(function(){cb&&cb(null)}).catch(function(err){cb&&cb(err)});
 }
@@ -560,7 +569,7 @@ function pullOnline(cb){
   var code=syncCode();
   if(!code){cb&&cb('no code');return}
   var myTag=deviceTag();
-  fetch(SYNC_BASE+encodeURIComponent(code)+'/registry').then(function(r){return r.ok?r.text():'[]'}).then(function(t){
+  syncFetch(SYNC_BASE+encodeURIComponent(code)+'/registry').then(function(r){return r.text()}).then(function(t){
     var list;try{list=JSON.parse(t)}catch(e){list=[]}
     if(!Array.isArray(list))list=[];
     var others=list.filter(function(tg){return tg!==myTag});
@@ -654,10 +663,10 @@ document.getElementById('devSyncNow').addEventListener('click',function(){
   if(!syncCode()){syncStatus('No sync code set yet — create or enter one first.');return}
   syncStatus('Syncing…');
   pushOnline(function(err){
-    if(err){syncStatus('Could not reach the sync server (offline, or this PC has no internet access).');return}
+    if(err){syncStatus('Push failed: '+(err&&err.message?err.message:String(err)));return}
     pullOnline(function(err2,count){
-      if(err2){syncStatus('Pushed this device’s scans, but could not pull others (offline?).');renderHistory();return}
-      syncStatus('Synced. '+(count||0)+' scan(s) from other devices.');
+      if(err2){syncStatus('Pushed OK, but pull failed: '+(err2&&err2.message?err2.message:String(err2)));renderHistory();return}
+      syncStatus('Synced OK. '+(count||0)+' scan(s) pulled from other devices.');
       renderHistory();
     });
   });
