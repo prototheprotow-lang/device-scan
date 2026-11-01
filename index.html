@@ -554,7 +554,7 @@ function updateRegistry(code,tag){
   return fetch(basketUrl(name)).then(function(r){return r.ok?r.json():{tags:[]}}).catch(function(){return{tags:[]}}).then(function(data){
     var list=(data&&Array.isArray(data.tags))?data.tags:[];
     if(list.indexOf(tag)===-1)list.push(tag);
-    return syncFetch(basketUrl(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:list})});
+    return syncFetch(basketUrl(name),{method:'POST',body:JSON.stringify({tags:list})});
   });
 }
 function pushOnline(cb){
@@ -562,7 +562,7 @@ function pushOnline(cb){
   if(!code){cb&&cb('no code');return}
   var tag=deviceTag();
   var name=code+'-scans-'+tag;
-  syncFetch(basketUrl(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scans:getHistory()})}).then(function(){
+  syncFetch(basketUrl(name),{method:'POST',body:JSON.stringify({scans:getHistory()})}).then(function(){
     return updateRegistry(code,tag);
   }).then(function(){cb&&cb(null)}).catch(function(err){cb&&cb(err)});
 }
