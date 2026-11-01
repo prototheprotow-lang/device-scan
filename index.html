@@ -276,7 +276,7 @@ button.small{margin-top:0;padding:7px 14px;font-size:.8rem}
 </div>
 <div class="devbox" id="devBoxList" style="display:none">
 <h3>Saved scans</h3>
-<p class="devnote">Every copy of this app ships with the same default sync code built in, so by default every PC that runs this file pushes its scans to one shared online store automatically — no setup needed. Enter a different code below and press "Use this code" if you want this PC (or a whole separate set of PCs) kept off the shared default. This uses a free public relay (kvdb.io) with no login: anyone who has a code — including the built-in default, which is visible in this file's source — can read or write data under it. If this file ever leaves your lab, other copies running elsewhere will land in the same default bucket as yours unless someone changes the code.</p>
+<p class="devnote">Every copy of this app ships with the same default sync code built in, so by default every PC that runs this file pushes its scans to one shared online store automatically — no setup needed. Enter a different code below and press "Use this code" if you want this PC (or a whole separate set of PCs) kept off the shared default. This uses a free public relay (getpantry.cloud) with no login: anyone who has a code — including the built-in default, which is visible in this file's source — can read or write data under it. If this file ever leaves your lab, other copies running elsewhere will land in the same default bucket as yours unless someone changes the code.</p>
 <div class="devsync">
 <input type="text" id="devSyncCode" placeholder="Sync code (same on every PC)" autocomplete="off">
 <div class="devactions">
@@ -535,9 +535,11 @@ function deviceTag(){
 function getHistory(){try{return JSON.parse(localStorage.getItem('deviceScanHistory')||'[]')}catch(e){return[]}}
 function getImported(){try{return JSON.parse(localStorage.getItem('deviceScanImported')||'[]')}catch(e){return[]}}
 function getOnline(){try{return JSON.parse(localStorage.getItem('deviceScanOnline')||'[]')}catch(e){return[]}}
-var SYNC_BASE='https://kvdb.io/';
-var DEFAULT_SYNC_CODE='devicescan-lab-f83kd1x9';
+var PANTRY_ID='bac57c5c-002a-41cb-8023-61403206b883';
+var PANTRY_BASE='https://getpantry.cloud/apiv1/pantry/'+PANTRY_ID+'/basket/';
+var DEFAULT_SYNC_CODE='devicescan-lab';
 function syncCode(){try{return localStorage.getItem('deviceScanSyncCode')||DEFAULT_SYNC_CODE}catch(e){return DEFAULT_SYNC_CODE}}
+function basketUrl(name){return PANTRY_BASE+encodeURIComponent(name)}
 function syncFetch(url,opts){
   return fetch(url,opts).then(function(r){
     if(!r.ok){var e=new Error('HTTP '+r.status+' from sync server');e.httpStatus=r.status;throw e}
@@ -548,20 +550,19 @@ function syncFetch(url,opts){
   });
 }
 function updateRegistry(code,tag){
-  var url=SYNC_BASE+encodeURIComponent(code)+'/registry';
-  return fetch(url).then(function(r){return r.ok?r.text():'[]'}).then(function(t){
-    var list;try{list=JSON.parse(t)}catch(e){list=[]}
-    if(!Array.isArray(list))list=[];
+  var name=code+'-registry';
+  return fetch(basketUrl(name)).then(function(r){return r.ok?r.json():{tags:[]}}).catch(function(){return{tags:[]}}).then(function(data){
+    var list=(data&&Array.isArray(data.tags))?data.tags:[];
     if(list.indexOf(tag)===-1)list.push(tag);
-    return syncFetch(url,{method:'PUT',body:JSON.stringify(list)});
+    return syncFetch(basketUrl(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tags:list})});
   });
 }
 function pushOnline(cb){
   var code=syncCode();
   if(!code){cb&&cb('no code');return}
   var tag=deviceTag();
-  var url=SYNC_BASE+encodeURIComponent(code)+'/scans-'+encodeURIComponent(tag);
-  syncFetch(url,{method:'PUT',body:JSON.stringify(getHistory())}).then(function(){
+  var name=code+'-scans-'+tag;
+  syncFetch(basketUrl(name),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({scans:getHistory()})}).then(function(){
     return updateRegistry(code,tag);
   }).then(function(){cb&&cb(null)}).catch(function(err){cb&&cb(err)});
 }
@@ -569,16 +570,13 @@ function pullOnline(cb){
   var code=syncCode();
   if(!code){cb&&cb('no code');return}
   var myTag=deviceTag();
-  syncFetch(SYNC_BASE+encodeURIComponent(code)+'/registry').then(function(r){return r.text()}).then(function(t){
-    var list;try{list=JSON.parse(t)}catch(e){list=[]}
-    if(!Array.isArray(list))list=[];
+  syncFetch(basketUrl(code+'-registry')).then(function(r){return r.json()}).then(function(data){
+    var list=(data&&Array.isArray(data.tags))?data.tags:[];
     var others=list.filter(function(tg){return tg!==myTag});
     return Promise.all(others.map(function(tg){
-      return fetch(SYNC_BASE+encodeURIComponent(code)+'/scans-'+encodeURIComponent(tg)).then(function(r){return r.ok?r.text():null}).then(function(t2){
-        if(!t2)return null;
-        var arr;try{arr=JSON.parse(t2)}catch(e){return null}
-        if(!Array.isArray(arr))return null;
-        return arr.map(function(s){return{label:s.label,time:s.time,report:s.report,tag:tg}});
+      return fetch(basketUrl(code+'-scans-'+tg)).then(function(r){return r.ok?r.json():null}).then(function(d){
+        if(!d||!Array.isArray(d.scans))return null;
+        return d.scans.map(function(s){return{label:s.label,time:s.time,report:s.report,tag:tg}});
       }).catch(function(){return null});
     }));
   }).then(function(results){
